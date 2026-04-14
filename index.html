@@ -2,46 +2,76 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Visualizador de Shapefile</title>
+  <title>WebGIS - Visualizador Profissional</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 
   <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-    }
-    #map {
-      width: 100%;
-      height: 100vh;
-    }
-    .upload-box {
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #map { width: 100%; height: 100vh; }
+
+    .panel {
       position: absolute;
       top: 10px;
       left: 10px;
       z-index: 1000;
       background: white;
-      padding: 10px;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      padding: 12px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      width: 250px;
+    }
+
+    .panel h3 { margin: 0 0 10px; font-size: 16px; }
+
+    .layer-item {
+      font-size: 13px;
+      margin-top: 5px;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 8px;
+      padding: 6px;
+      border: none;
+      border-radius: 6px;
+      background: #4CAF50;
+      color: white;
+      cursor: pointer;
+    }
+
+    select, input {
+      width: 100%;
+      margin-top: 5px;
     }
   </style>
 </head>
 <body>
 
-<div class="upload-box">
+<div class="panel">
+  <h3>WebGIS</h3>
+
   <input type="file" id="fileInput" />
+
+  <label>Projeção:</label>
+  <select id="srcProj">
+    <option value="EPSG:4326">WGS84</option>
+    <option value="EPSG:31983">SIRGAS 23S</option>
+    <option value="EPSG:31982">SIRGAS 22S</option>
+    <option value="EPSG:31984">SIRGAS 24S</option>
+  </select>
+
+  <button onclick="clearMap()">Limpar Camadas</button>
+
+  <div id="layers"></div>
 </div>
 
 <div id="map"></div>
 
-<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-<!-- shp.js para ler shapefile -->
 <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 
 <script>
   const map = L.map('map').setView([-15.78, -47.93], 12);
@@ -50,8 +80,72 @@
     maxZoom: 19
   }).addTo(map);
 
+  let layersControl = [];
+
+  proj4.defs("EPSG:31982", "+proj=utm +zone=22 +south +datum=SIRGAS2000 +units=m +no_defs");
+  proj4.defs("EPSG:31983", "+proj=utm +zone=23 +south +datum=SIRGAS2000 +units=m +no_defs");
+  proj4.defs("EPSG:31984", "+proj=utm +zone=24 +south +datum=SIRGAS2000 +units=m +no_defs");
+
+  function reproject(coord, src) {
+    if (src === "EPSG:4326") return [coord[1], coord[0]];
+    const [x, y] = proj4(src, "EPSG:4326", coord);
+    return [y, x];
+  }
+
+  function processGeometry(geom, src) {
+    if (geom.type === "Point") {
+      geom.coordinates = reproject(geom.coordinates, src);
+    }
+
+    if (geom.type === "LineString") {
+      geom.coordinates = geom.coordinates.map(c => reproject(c, src));
+    }
+
+    if (geom.type === "Polygon") {
+      geom.coordinates = geom.coordinates.map(r => r.map(c => reproject(c, src)));
+    }
+
+    if (geom.type === "MultiPolygon") {
+      geom.coordinates = geom.coordinates.map(p =>
+        p.map(r => r.map(c => reproject(c, src)))
+      );
+    }
+
+    return geom;
+  }
+
+  function randomColor() {
+    return '#' + Math.floor(Math.random()*16777215).toString(16);
+  }
+
+  function addLayerToList(name, layer) {
+    const div = document.createElement('div');
+    div.className = 'layer-item';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+
+    checkbox.onchange = () => {
+      if (checkbox.checked) map.addLayer(layer);
+      else map.removeLayer(layer);
+    };
+
+    div.appendChild(checkbox);
+    div.appendChild(document.createTextNode(' ' + name));
+
+    document.getElementById('layers').appendChild(div);
+  }
+
+  function clearMap() {
+    layersControl.forEach(l => map.removeLayer(l));
+    layersControl = [];
+    document.getElementById('layers').innerHTML = '';
+  }
+
   document.getElementById('fileInput').addEventListener('change', function(e) {
     const file = e.target.files[0];
+    const srcProj = document.getElementById('srcProj').value;
 
     if (!file) return;
 
@@ -59,7 +153,27 @@
 
     reader.onload = function() {
       shp(reader.result).then(function(geojson) {
-        const layer = L.geoJSON(geojson).addTo(map);
+
+        geojson.features.forEach(f => {
+          f.geometry = processGeometry(f.geometry, srcProj);
+        });
+
+        const color = randomColor();
+
+        const layer = L.geoJSON(geojson, {
+          style: { color: color },
+          onEachFeature: function (feature, layer) {
+            let popup = "";
+            for (let key in feature.properties) {
+              popup += `<b>${key}:</b> ${feature.properties[key]}<br>`;
+            }
+            layer.bindPopup(popup);
+          }
+        }).addTo(map);
+
+        layersControl.push(layer);
+        addLayerToList(file.name, layer);
+
         map.fitBounds(layer.getBounds());
       });
     };
