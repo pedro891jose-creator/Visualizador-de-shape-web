@@ -1,96 +1,178 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebGIS Pro - Modern Interface</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoPatrimônio SPU - Consulta de Lotes & Memoriais</title>
+  
+  <!-- Bulma CSS Framework -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+  <!-- FontAwesome (Ícones) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v7.4.0/ol.css">
-    <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
-    <link rel="icon" href="data:,">
-    
-    <link rel="stylesheet" href="p1.1.boostrap.css">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- Estilos Customizados -->
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<nav class="navbar navbar-dark navbar-custom shadow-lg">
-    <div class="container-fluid d-flex justify-content-center gap-3">
-        <a class="navbar-brand fw-bold d-flex align-items-center" href="#">
-            <i class="bi bi-geo-alt-fill me-2" style="color: #0d6efd;"></i>
-            <span class="d-none d-sm-inline text-dark">GisViewer</span>
+  <!-- Navbar -->
+  <nav class="navbar is-link mb-4" role="navigation">
+    <div class="container">
+      <div class="navbar-brand">
+        <a class="navbar-item has-text-weight-bold is-size-5" href="#">
+          <i class="fa-solid fa-map-location-dot mr-2"></i> GeoPatrimônio SPU
         </a>
+      </div>
+      <div class="navbar-end">
+        <div class="navbar-item">
+          <span class="tag is-info is-light">SIRGAS 2000 / UTM 25S</span>
+        </div>
+      </div>
+    </div>
+  </nav>
 
-        <div class="d-flex align-items-center gap-2">
-            <select id="layer-selector" class="form-select form-select-sm rounded-pill border-0 shadow-sm bg-light">
-                <option value="osm">🗺️ Ruas</option>
-                <option value="sat">🛰️ Satélite</option>
-                <option value="hybrid">🌍 Híbrido</option>
-            </select>
+  <div class="container px-4">
+    
+    <!-- PAINEL DE BUSCA EM DESTAQUE -->
+    <div class="hero-search-box mb-5">
+      <label class="label is-medium has-text-link">
+        <i class="fa-solid fa-magnifying-glass-location mr-2"></i> Consultar Lote da União
+      </label>
+      <div class="field has-addons">
+        <div class="control is-expanded has-icons-left">
+          <input 
+            class="input is-medium" 
+            type="text" 
+            id="input-busca" 
+            placeholder="Digite o ID/FID do lote..."
+            onkeypress="if(event.key === 'Enter') buscarPorTermo()"
+          >
+          <span class="icon is-medium is-left">
+            <i class="fa-solid fa-search"></i>
+          </span>
+        </div>
+        <div class="control">
+          <button class="button is-link is-medium px-5" onclick="buscarPorTermo()">
+            <span class="has-text-weight-bold">Pesquisar</span>
+          </button>
+        </div>
+      </div>
+      <p class="help is-size-7 has-text-grey">
+      ℹ️ Após a pesquisa, o polígono do lote será automaticamente localizado e destacado a amarelo no mapa de satélite abaixo.
+      </p>
+    </div>
 
-            <select id="map-proj-selector" class="form-select form-select-sm rounded-pill border-0 shadow-sm bg-light d-none d-md-block">
-                <option value="EPSG:4674">SIRGAS 2000</option>
-                <option value="EPSG:4326">WGS 84</option>
-            </select>
+    <!-- CONTEÚDO PRINCIPAL (MAPA E DETALHES) -->
+    <div class="columns">
+      
+      <!-- LADO ESQUERDO: MAPA INTERATIVO -->
+      <div class="column is-7">
+        <div class="card">
+          <header class="card-header">
+            <p class="card-header-title">
+              <span class="icon mr-2"><i class="fa-solid fa-earth-americas"></i></span>
+              Visualização Espacial
+            </p>
+          </header>
+          <div class="card-content p-2">
+            <div id="map-container">
+              <div id="map"></div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-            <label for="file-input" class="btn btn-success btn-sm rounded-pill px-3 fw-bold shadow-sm mb-0">
-                <span id="spinner-load" class="spinner-border spinner-border-sm d-none" role="status"></span>
-                <i id="icon-upload" class="bi bi-cloud-arrow-up-fill"></i>
-                <span class="d-none d-lg-inline ms-1">Abrir ZIP</span>
-            </label>
-            <input type="file" id="file-input" accept=".zip" hidden>
+      <!-- LADO DIREITO: INFORMAÇÕES E VÉRTICES -->
+      <div class="column is-5">
+        
+        <!-- Card de Informações Cadastrais -->
+        <div class="card mb-4">
+          <header class="card-header">
+            <p class="card-header-title has-text-link" id="txt-nome-lote">
+              Selecione um lote
+            </p>
+          </header>
+          <div class="card-content">
+            <div class="columns is-multiline is-mobile">
+              <div class="column is-6">
+                <p class="heading">CODIGO DO LOTE</p>
+                <p class="title is-6" id="txt-rip">-</p>
+              </div>
+              <div class="column is-6">
+                <p class="heading">Área Total</p>
+                <p class="title is-6 has-text-link" id="txt-area">0 m²</p>
+              </div>
+              <div class="column is-6">
+<p class="heading">Proprietário</p>
+<p class="title is-6" id="txt-proprietario">União Federal</p>
+              </div>
+              <div class="column is-6">
+                <p class="heading">UF / Município</p>
+                <p class="subtitle is-6">PB / João Pessoa</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
-            <button class="btn btn-light btn-sm rounded-pill px-3 fw-bold text-primary shadow-sm border" onclick="toggleModal()">
-                <i class="bi bi-table"></i>
-                <span class="d-none d-lg-inline ms-1">Dados</span>
+        <!-- Card da Tabela de Vértices UTM -->
+        <div class="card">
+          <header class="card-header">
+            <p class="card-header-title">
+              <span class="icon mr-2"><i class="fa-solid fa-draw-polygon"></i></span>
+              Quadro de Vértices UTM
+            </p>
+          </header>
+          <div class="card-content p-0">
+            <div class="table-container-scroll">
+              <table class="table is-fullwidth is-striped is-hoverable is-narrow">
+                <thead>
+                  <tr>
+                    <th>Pt</th>
+                    <th>Este (X)</th>
+                    <th>Norte (Y)</th>
+                    <th>Dist (m)</th>
+                    <th>Az (°)</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-vertices">
+                  <tr>
+                    <td colspan="5" class="has-text-centered has-text-grey py-4">
+                      Nenhum lote selecionado.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-footer p-3">
+            <button id="btn-exportar" class="button is-link is-fullwidth" disabled onclick="gerarMemorialDocx()">
+              <span class="icon"><i class="fa-solid fa-file-word"></i></span>
+              <span>Gerar Memorial Descritivo (.DOCX)</span>
             </button>
+          </div>
         </div>
+
+      </div>
+
     </div>
-</nav>
 
-<div id="mini-panel" class="card shadow-lg border-0">
-    <div class="card-header py-2 d-flex justify-content-between align-items-center">
-        <h6 class="mb-0 small fw-bold text-white">Detalhes do Lote</h6>
-        <button type="button" class="btn-close btn-close-white" onclick="closeMiniPanel()" style="font-size: 0.7rem;"></button>
-    </div>
-    <div class="card-body p-3 overflow-auto" id="mini-content" style="max-height: 300px; font-size: 0.85rem;"></div>
-    <div class="card-footer border-0">
-        <button id="btn-mini-zoom" class="btn btn-primary btn-sm rounded-pill w-100 fw-bold">🔍 Focar no Mapa</button>
-    </div>
-</div>
+  </div>
 
-<div class="modal fade" id="dataModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-centered">
-        <div class="modal-content rounded-4 shadow-lg border-0">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title fw-bold"><i class="bi bi-database-fill me-2"></i>Banco de Dados</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body p-0">
-                <div id="table-container" style="height: 60vh;"></div>
-            </div>
-        </div>
-    </div>
-</div>
+  <!-- BIBLIOTECAS JS (ORDEM RIGOROSA) -->
+<!-- 1. Bibliotecas do Leaflet e VectorGrid -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/pbf@3.0.5/dist/pbf.js"></script>
+<script src="https://unpkg.com/leaflet.vectorgrid@1.3.0/dist/Leaflet.VectorGrid.bundled.js"></script>
 
-<div id="map"></div>
+<!-- 2. SDK do Supabase e Utilitários -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/docx@8.5.0/build/index.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
-<div id="projection-display" class="projection-badge">
-    <i class="bi bi-globe me-1 text-primary"></i>
-    <span id="current-epsg">EPSG:4674</span>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/ol@v7.4.0/dist/ol.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
-<script src="https://unpkg.com/shpjs@latest/dist/shp.js"></script>
-<script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
-  
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="p.1.1.js"></script>
-</body>
-
-
+<!-- 3. Seu script principal sempre por ÚLTIMO (com versão forçada para evitar cache) -->
+<script src="app.js?v=15"></script>
 </body>
 </html>
