@@ -50,7 +50,7 @@ window.onload = () => {
 
   const inputBusca = document.getElementById('input-busca');
   if (inputBusca) {
-    inputBusca.placeholder = "Digite o Codi_Lote ou Código Cartográfico";
+    inputBusca.placeholder = "Digite o  Código Cartográfico";
     inputBusca.addEventListener('keypress', function (e) {
       if (e.key === 'Enter') buscarPorTermo();
     });
