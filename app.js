@@ -5,12 +5,12 @@ var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 var supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 var map = null;
-var loteLayer = null;
+var loteLayer = L.layerGroup(); // Agora é uma camada permanente
 var verticesLayer = L.layerGroup(); 
 var lpmLayer = L.layerGroup();
 var ltmLayer = L.layerGroup();
 var marinhaUnidaLayer = L.layerGroup(); 
-var interseccaoLayer = L.layerGroup(); // Camada para o polígono roxo
+var interseccaoLayer = L.layerGroup(); 
 var loteSelecionado = null;
 var verticesSelecionados = [];
 
@@ -22,6 +22,8 @@ window.onload = () => {
     attribution: '© Google Maps Satélite'
   }).addTo(map);
 
+  // Adiciona todas as camadas ao mapa inicialmente para o menu funcionar
+  loteLayer.addTo(map);
   verticesLayer.addTo(map);
   lpmLayer.addTo(map);
   ltmLayer.addTo(map);
@@ -29,18 +31,18 @@ window.onload = () => {
   interseccaoLayer.addTo(map); 
 
   var overlayMaps = {
-    "Lotes da União": loteLayer ? loteLayer : L.layerGroup(),
+    "Lote Pesquisado (Azul)": loteLayer,
     "LPM (Praiamar Média)": lpmLayer,
     "LTM (Terrenos de Marinha)": ltmLayer,
     "Área Calculada (Roxa)": interseccaoLayer
   };
   L.control.layers(null, overlayMaps, { collapsed: false }).addTo(map);
 
-  console.log("🚀 VERSÃO 26: Polígono Roxo, Tooltips e Textos atualizados!");
+  console.log("🚀 VERSÃO 28: Controlo de Camadas e Nomes Corrigidos");
 
   const inputBusca = document.getElementById('input-busca');
   if (inputBusca) {
-    inputBusca.placeholder = "Digite o Codi_Lote ou Código Cartográfico";
+    inputBusca.placeholder = "Digite o Código Cartográfico";
     inputBusca.addEventListener('keypress', function (e) {
       if (e.key === 'Enter') buscarPorTermo();
     });
@@ -172,7 +174,7 @@ function desenharLoteNaTela(lote) {
   loteSelecionado = lote;
 
   const campoProprietario = document.getElementById('txt-proprietario');
-  if (campoProprietario) campoProprietario.innerText = lote.Desc_Logr || 'Proprietário não informado';
+  if (campoProprietario) campoProprietario.innerText = lote.Desc_Logr || 'Endereço não informado';
   document.getElementById('txt-rip').innerText = lote.Codi_Lote || 'N/A';
   
   const temAreaUniao = lote.area_uniao_m2 && lote.area_uniao_m2 > 0;
@@ -185,7 +187,7 @@ function desenharLoteNaTela(lote) {
   `;
   document.getElementById('txt-area').innerHTML = areaHTML;
 
-  if (loteLayer) map.removeLayer(loteLayer);
+  loteLayer.clearLayers();
   verticesLayer.clearLayers();
   interseccaoLayer.clearLayers();
   verticesSelecionados = [];
@@ -195,13 +197,12 @@ function desenharLoteNaTela(lote) {
 
   if (lote.geom_wgs84 && lote.geom_sirgas) {
     
-    loteLayer = L.geoJSON(lote.geom_wgs84, {
+    const loteGeo = L.geoJSON(lote.geom_wgs84, {
       style: { color: '#2563eb', weight: 4, fillColor: '#3b82f6', fillOpacity: 0.5 }
-    })
-    .bindTooltip("<b>Lote (Área Total)</b><br>Limites do imóvel", { sticky: true })
-    .addTo(map);
+    }).bindTooltip("<b>Lote (Área Total)</b><br>Limites do imóvel", { sticky: true });
     
-    map.fitBounds(loteLayer.getBounds(), { padding: [50, 50], maxZoom: 19 });
+    loteLayer.addLayer(loteGeo);
+    map.fitBounds(loteGeo.getBounds(), { padding: [50, 50], maxZoom: 19 });
 
     if (lote.geom_interseccao) {
       L.geoJSON(lote.geom_interseccao, {
@@ -268,6 +269,11 @@ function desenharLoteNaTela(lote) {
         processarAnel(lote.geom_sirgas.coordinates[p][0], lote.geom_wgs84.coordinates[p][0]);
       }
     }
+    
+    // NOVIDADE AQUI: Puxa todos os pontos brancos dos vértices para a camada superior do mapa
+    verticesLayer.eachLayer(function (layer) {
+      if (layer.bringToFront) layer.bringToFront();
+    });
   }
 
   const btnExportar = document.getElementById('btn-exportar');
@@ -283,7 +289,7 @@ function limparCampos() {
   const tbody = document.getElementById('tbody-vertices');
   if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="has-text-centered has-text-grey py-4">Nenhum lote selecionado.</td></tr>';
   
-  if (loteLayer) map.removeLayer(loteLayer);
+  loteLayer.clearLayers();
   verticesLayer.clearLayers();
   interseccaoLayer.clearLayers();
   
@@ -294,47 +300,106 @@ function limparCampos() {
 async function gerarMemorialDocx() {
   if (!loteSelecionado || verticesSelecionados.length === 0) return;
 
-  const { docx } = window;
-  const linhasTabela = [
-    new docx.TableRow({
-      children: [
-        new docx.TableCell({ children: [new docx.Paragraph({ text: "Vértice", bold: true })] }),
-        new docx.TableCell({ children: [new docx.Paragraph({ text: "Este (X)", bold: true })] }),
-        new docx.TableCell({ children: [new docx.Paragraph({ text: "Norte (Y)", bold: true })] }),
-        new docx.TableCell({ children: [new docx.Paragraph({ text: "Distância (m)", bold: true })] }),
-        new docx.TableCell({ children: [new docx.Paragraph({ text: "Azimute", bold: true })] }),
-      ]
-    })
-  ];
+  const enderecoFinal = loteSelecionado.Desc_Logr !== 'Desconhecido' && loteSelecionado.Desc_Logr !== '-' ? loteSelecionado.Desc_Logr : 'Endereço não informado';
 
+  const proprietarioManual = prompt("Digite o nome do Proprietário do imóvel para o Memorial:", "União Federal");
+  if (proprietarioManual === null) return; 
+  const proprietarioFinal = proprietarioManual.trim() || "União Federal";
+
+  const { docx } = window;
+
+  let perimetro = 0;
   verticesSelecionados.forEach(v => {
-    linhasTabela.push(
-      new docx.TableRow({
-        children: [
-          new docx.TableCell({ children: [new docx.Paragraph(`P${v.vertice_id}`)] }),
-          new docx.TableCell({ children: [new docx.Paragraph(`${v.este_x}`)] }),
-          new docx.TableCell({ children: [new docx.Paragraph(`${v.norte_y}`)] }),
-          new docx.TableCell({ children: [new docx.Paragraph(`${v.distancia_m || 0}`)] }),
-          new docx.TableCell({ children: [new docx.Paragraph(`${v.azimute_graus}`)] }),
-        ]
-      })
-    );
+    perimetro += parseFloat(v.distancia_m || 0);
   });
+  
+  const perimetroStr = perimetro.toFixed(2).replace('.', ',');
+  const areaStr = (loteSelecionado.area_m2 || 0).toString().replace('.', ',');
+
+  const meses = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const dataHj = new Date();
+  const dataStr = `${dataHj.getDate()} de ${meses[dataHj.getMonth()]} de ${dataHj.getFullYear()}`;
+
+  let textoVertices = `Inicia-se a descrição deste perímetro no vértice P${verticesSelecionados[0].vertice_id}, de coordenadas N ${verticesSelecionados[0].norte_y.replace('.', ',')} m e E ${verticesSelecionados[0].este_x.replace('.', ',')} m; `;
+
+  for (let i = 0; i < verticesSelecionados.length; i++) {
+    let vAtual = verticesSelecionados[i];
+    let vProx = verticesSelecionados[(i + 1) % verticesSelecionados.length];
+    let dist = vAtual.distancia_m.replace('.', ',');
+    let az = vAtual.azimute_graus.replace(/"/g, "''"); 
+
+    textoVertices += `deste, segue com os seguintes azimute plano e distância: ${az} e ${dist} m; até o vértice P${vProx.vertice_id}, de coordenadas N ${vProx.norte_y.replace('.', ',')} m e E ${vProx.este_x.replace('.', ',')} m; `;
+  }
+  textoVertices = textoVertices.slice(0, -2) + ", encerrando esta descrição.";
+
+  let imageBuffer = null;
+  try {
+    const response = await fetch('./brasao.png');
+    if (response.ok) {
+        imageBuffer = await response.arrayBuffer();
+    }
+  } catch (e) {
+    console.warn("Imagem brasao.png não encontrada.");
+  }
+
+  const docChildren = [];
+
+  if (imageBuffer) {
+      docChildren.push(new docx.Paragraph({
+          children: [
+              new docx.ImageRun({
+                  data: imageBuffer,
+                  transformation: { width: 120, height: 120 }
+              })
+          ],
+          alignment: docx.AlignmentType.CENTER,
+          spacing: { after: 400 }
+      }));
+  }
+
+  docChildren.push(
+    new docx.Paragraph({ text: "Memorial Descritivo", alignment: docx.AlignmentType.CENTER, bold: true, spacing: { after: 400 } }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Imóvel: ", bold: true }), new docx.TextRun({ text: "Terreno da União" }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Proprietário: ", bold: true }), new docx.TextRun({ text: proprietarioFinal }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Endereço: ", bold: true }), new docx.TextRun({ text: enderecoFinal }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Município/UF: ", bold: true }), new docx.TextRun({ text: "João Pessoa/PB" }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Perímetro (m): ", bold: true }), new docx.TextRun({ text: perimetroStr }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Área (m²): ", bold: true }), new docx.TextRun({ text: areaStr }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "RIP: ", bold: true }), new docx.TextRun({ text: loteSelecionado.Codi_Lote || '-' }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "NBP: ", bold: true }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Matrícula: ", bold: true }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Comarca: ", bold: true }) ] }),
+    new docx.Paragraph({ children: [ new docx.TextRun({ text: "Código INCRA: ", bold: true }) ], spacing: { after: 400 } }),
+    new docx.Paragraph({ text: "DESCRIÇÃO", alignment: docx.AlignmentType.CENTER, bold: true, spacing: { after: 200 } }),
+    new docx.Paragraph({
+        children: [ new docx.TextRun({ text: `O imóvel descrito abaixo corresponde a um terreno de ${areaStr} m², localizado à ${enderecoFinal}, no município de João Pessoa/PB, representado na planta , processo SEI: .` }) ],
+        alignment: docx.AlignmentType.JUSTIFIED,
+        spacing: { after: 200 }
+    }),
+    new docx.Paragraph({
+        children: [ new docx.TextRun({ text: textoVertices }) ],
+        alignment: docx.AlignmentType.JUSTIFIED,
+        spacing: { after: 400 }
+    }),
+    new docx.Paragraph({
+        children: [ new docx.TextRun({ text: "Todas as coordenadas aqui descritas estão georreferenciadas ao Sistema Geodésico Brasileiro e encontram-se representadas no sistema UTM, referenciadas ao Meridiano Central -33, Fuso 25S, tendo como DATUM SIRGAS 2000. Todos os azimutes e distâncias, área e perímetro foram calculados no plano de projeção UTM." }) ],
+        alignment: docx.AlignmentType.JUSTIFIED,
+        spacing: { after: 800 }
+    }),
+    new docx.Paragraph({ text: `João Pessoa, ${dataStr}`, alignment: docx.AlignmentType.RIGHT, spacing: { after: 600 } }),
+    new docx.Paragraph({ text: "______________________________________________________", alignment: docx.AlignmentType.CENTER }),
+    new docx.Paragraph({ text: "Responsável Técnico", alignment: docx.AlignmentType.CENTER }),
+    new docx.Paragraph({ text: "CREA: ", alignment: docx.AlignmentType.CENTER })
+  );
 
   const doc = new docx.Document({
     sections: [{
-      children: [
-        new docx.Paragraph({ text: "MEMORIAL DESCRITIVO", bold: true, size: 32, alignment: docx.AlignmentType.CENTER, spacing: { after: 300 } }),
-        new docx.Paragraph({ text: `Denominação / Logradouro: ${loteSelecionado.Desc_Logr || 'Imóvel da União'}` }),
-        new docx.Paragraph({ text: `Codi_Lote / RIP: ${loteSelecionado.Codi_Lote || 'N/A'}` }),
-        new docx.Paragraph(`Área Total: ${loteSelecionado.area_m2 || 0} m²`),
-        new docx.Paragraph({ text: `Sistema de Referência: SIRGAS 2000 / UTM zone 25S (EPSG: 31985)`, spacing: { after: 300 } }),
-        new docx.Table({ rows: linhasTabela, width: { size: 100, type: docx.WidthType.PERCENTAGE } })
-      ]
+      properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } },
+      children: docChildren
     }]
   });
 
   docx.Packer.toBlob(doc).then(blob => {
-    saveAs(blob, `Memorial_${loteSelecionado.Codi_Lote || 'Lote'}.docx`);
+    saveAs(blob, `Memorial_Descritivo_${loteSelecionado.Codi_Lote || 'Lote'}.docx`);
   });
 }
