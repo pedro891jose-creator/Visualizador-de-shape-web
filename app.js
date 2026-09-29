@@ -5,7 +5,7 @@ var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 var supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 var map = null;
-var loteLayer = L.layerGroup(); // Agora é uma camada permanente
+var loteLayer = L.layerGroup(); 
 var verticesLayer = L.layerGroup(); 
 var lpmLayer = L.layerGroup();
 var ltmLayer = L.layerGroup();
@@ -22,7 +22,6 @@ window.onload = () => {
     attribution: '© Google Maps Satélite'
   }).addTo(map);
 
-  // Adiciona todas as camadas ao mapa inicialmente para o menu funcionar
   loteLayer.addTo(map);
   verticesLayer.addTo(map);
   lpmLayer.addTo(map);
@@ -38,11 +37,20 @@ window.onload = () => {
   };
   L.control.layers(null, overlayMaps, { collapsed: false }).addTo(map);
 
-  console.log("🚀 VERSÃO 28: Controlo de Camadas e Nomes Corrigidos");
+  // NOVIDADE: Garante que a Área Roxa volta para o topo se o Lote Azul for reativado
+  map.on('overlayadd', function(e) {
+    if (e.name === 'Lote Pesquisado (Azul)' && map.hasLayer(interseccaoLayer)) {
+      interseccaoLayer.eachLayer(function (layer) {
+        if (layer.bringToFront) layer.bringToFront();
+      });
+    }
+  });
+
+  console.log("🚀 VERSÃO 29: Ordem Visual de Camadas Totalmente Corrigida");
 
   const inputBusca = document.getElementById('input-busca');
   if (inputBusca) {
-    inputBusca.placeholder = "Digite o Código Cartográfico";
+    inputBusca.placeholder = "Digite o Codi_Lote ou Código Cartográfico";
     inputBusca.addEventListener('keypress', function (e) {
       if (e.key === 'Enter') buscarPorTermo();
     });
@@ -226,9 +234,17 @@ function desenharLoteNaTela(lote) {
         const ptWgs84Atual = anelWgs84[i];         
 
         const latlngAtual = [ptWgs84Atual[1], ptWgs84Atual[0]];
+        
+        // NOVIDADE: A propriedade "pane: 'markerPane'" força os pontos para o plano z-index mais alto
         const marcador = L.circleMarker(latlngAtual, {
-          radius: 5, fillColor: "#ffffff", color: "#1e293b", weight: 2, fillOpacity: 1
+          pane: 'markerPane', 
+          radius: 5, 
+          fillColor: "#ffffff", 
+          color: "#1e293b", 
+          weight: 2, 
+          fillOpacity: 1
         });
+        
         marcador.bindTooltip(`<span style="font-size: 10px; font-weight: bold; color: #1e293b;">P${pointIndex}</span>`, { direction: 'top', offset: [0, -3] }).addTo(verticesLayer);
 
         const esteX = ptSirgasAtual[0].toFixed(2);
@@ -269,11 +285,6 @@ function desenharLoteNaTela(lote) {
         processarAnel(lote.geom_sirgas.coordinates[p][0], lote.geom_wgs84.coordinates[p][0]);
       }
     }
-    
-    // NOVIDADE AQUI: Puxa todos os pontos brancos dos vértices para a camada superior do mapa
-    verticesLayer.eachLayer(function (layer) {
-      if (layer.bringToFront) layer.bringToFront();
-    });
   }
 
   const btnExportar = document.getElementById('btn-exportar');
